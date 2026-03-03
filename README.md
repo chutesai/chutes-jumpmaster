@@ -1,12 +1,12 @@
 # Chutes Jumpmaster
 
-**Your friendly Chutes Jumpmaster here to help you launch and manage chutes and keep aware of the greater Chutes ecosystem**
+Jumpmaster is a control-plane workspace for operating in the Chutes ecosystem.
 
-This repository is your command center for managing the [Chutes.ai](https://chutes.ai) ecosystem. It provides tooling to:
+Primary jobs:
 
-- **Track and update core chutes repos** - Keep all sub-repositories in sync
-- **Ask questions and explore** - IDE-friendly workflow for understanding changes
-- **Wrap upstream Docker images** - Create chutes from existing Docker images, with tools to auto-detect endpoints from services
+- **Track upstream changes across core Chutes repos** - Keep submodules current and inspect diffs quickly
+- **Build, run, deploy, and operate chutes with `deploy.sh`** - Centralized setup and lifecycle commands
+- **Wrap upstream Docker images into chutes** - Auto-discover routes and register passthrough cords
 
 Everything here is vendor-neutral—you can reuse the exact workflow for any service that needs to run on Chutes.
 
@@ -50,6 +50,19 @@ This ensures your local workspace stays current with upstream developments.
 
 ---
 
+## Daily Ops Loop
+
+Use this loop to stay current and operational:
+
+1. Sync all tracked upstream repos:
+   ```bash
+   ./update_all_repos.sh
+   ```
+2. Inspect what changed in submodules (`chutes/`, `chutes-api/`, `chutes-web/`, etc.) using your IDE or git diff tools.
+3. Use `deploy.sh` to build, deploy, check status, stream logs, and warm chutes as needed.
+
+---
+
 ## Architecture & Methodology
 
 **Strategy:** Keep the vendor image intact and inject the Chutes runtime so the exact same binaries continue to run. Only use the metadata-rebuild path (replaying steps onto the `parachutes/python` base) when you explicitly want a fresh foundation—for example, to audit each layer or to publish a clean-room replica. Even if the upstream container uses Conda or custom CUDA stacks, we still prefer to wrap *that* image so it behaves identically once deployed.
@@ -65,7 +78,7 @@ This ensures your local workspace stays current with upstream developments.
 
 ---
 
-## IDE-Friendly Development Environment
+## Upstream Change Inspection
 
 The Chutes Jumpmaster setup is designed for efficient local development with modern IDEs equipped with LLM support (VS Code, Cursor, etc.):
 
@@ -132,29 +145,32 @@ Interactive wizard that:
 
 ### 2. Deploy (`./deploy.sh`)
 
-Menu overview (press Enter for defaults when prompted):
+Capabilities (press Enter for defaults when prompted):
 
-| Option | Description |
-|--------|-------------|
-| **1** Account info | Show username + payment address from config |
-| **2** Link Bittensor wallet | Links an existing Chutes account to a local Bittensor wallet and writes `~/.chutes/config.ini` |
-| **3** Build chute | Build from local `deploy_*.py` (wraps `CHUTE_BASE_IMAGE`) |
-| **4** Create from Docker image | Creates a chute definition from an existing image |
-| **5** Run in Docker (GPU) | Sanity-check wrapped services |
-| **6** Run dev mode | Host-run for Python chutes |
-| **7** Deploy chute | Upload + schedule on Chutes.ai |
-| **8** Chute status | Health + instances |
-| **9** Instance logs | Streams logs for active instances |
-| **10** Warmup once | Trigger manual spin-up |
-| **11** Keep warm loop | Repeated warmup |
-| **12** List & delete chutes | Interactive safety checks |
-| **13** List & delete images | Remove built images |
+| Category | Option | Capability |
+|----------|--------|------------|
+| Account | **1** | Show username + payment address from config |
+| Account | **2** | Link existing Chutes account to local Bittensor wallet and write `~/.chutes/config.ini` |
+| Build/Discovery | **3** | Build from local `deploy_*.py` (wraps `CHUTE_BASE_IMAGE`) |
+| Build/Discovery | **4** | Create a chute definition from an existing Docker image |
+| Local Run | **5** | Run wrapped service in Docker (GPU sanity check) |
+| Local Run | **6** | Run chute in host dev mode |
+| Cloud Ops | **7** | Deploy chute (upload + schedule on Chutes.ai) |
+| Cloud Ops | **8** | Chute status (health + instances) |
+| Cloud Ops | **9** | Warmup + stream logs via SDK watcher (`chutes warmup <chute> --stream-logs`) |
+| Cloud Ops | **10** | Warmup once (manual spin-up) |
+| Cloud Ops | **11** | Keep warm loop (repeated warmup) |
+| Cleanup | **12** | List & delete chutes (interactive safety checks) |
+| Cleanup | **13** | List & delete images |
+
+`--logs` and option **9** intentionally trigger warmup and auto-watch for instances before streaming logs. If your installed `chutes` CLI does not support `--stream-logs` (or watcher mode fails), Jumpmaster falls back to legacy instance polling + direct `/instances/{id}/logs` streaming.
 
 **CLI Examples**
 ```bash
 ./deploy.sh --discover deploy_xtts_whisper
 ./deploy.sh --build deploy_xtts_whisper --local
 ./deploy.sh --deploy deploy_xtts_whisper --accept-fee
+./deploy.sh --logs xtts-whisper
 ```
 
 ### 3. Route Discovery
@@ -222,7 +238,7 @@ Most guidance here focuses on wrapping upstream Docker images, but some services
 | No routes discovered | Add `CHUTE_STATIC_ROUTES` or rerun discovery with longer delays |
 | Build segfaults | Ensure `build_wrapper_image` injects system Python; Conda-only bases fail `chutes-inspecto` |
 | Remote build rejected | Requires ≥ $50 balance; use `--local` during development |
-| Chute never warms | Use menu option 10 (keep warm loop) and watch instance logs |
+| Chute never warms | Use menu option 11 (keep warm loop) and watch instance logs |
 
 ---
 
@@ -243,7 +259,7 @@ chutes-jumpmaster/
 │   ├── chute_wrappers.py        # Image builder, route helpers
 │   ├── discover_routes.py       # OpenAPI probing and route discovery
 │   ├── create_chute_from_image.py  # Generate chute from Docker image
-│   └── instance_logs.py         # Log streaming utilities
+│   └── instance_logs.py         # Watcher-first log utility (legacy fallback included)
 ├── chutes/                      # Chutes Python SDK (git submodule)
 ├── chutes-api/                  # API server (git submodule)
 ├── chutes-web/                  # Web frontend (git submodule)
