@@ -124,6 +124,12 @@ for REPO in "${REPOS[@]}"; do
     echo "[START] $REPO"
 
     CURRENT_BRANCH=$(/usr/bin/git -C "$REPO_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    DEFAULT_BRANCH=$(/usr/bin/git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "")
+
+    # Warn if not on the default branch (interactive runs only)
+    if [ -t 1 ] && [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]; then
+        echo "[WARN]  $REPO is on '$CURRENT_BRANCH', not '$DEFAULT_BRANCH' — pull may not reflect latest upstream"
+    fi
 
     if /usr/bin/git -C "$REPO_PATH" pull 2>&1; then
         echo "[UPDATED] $REPO (branch: $CURRENT_BRANCH)"
