@@ -87,9 +87,12 @@ if [ ! -f "$SUBREPOS_FILE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Load repo list from .sub-repos
+# Load repo list from .sub-repos (bash 3.2-compatible, no mapfile)
 # ---------------------------------------------------------------------------
-mapfile -t REPOS < <(grep -v '^\s*#' "$SUBREPOS_FILE" | grep -v '^\s*$')
+REPOS=()
+while IFS= read -r line; do
+    REPOS+=("$line")
+done < <(grep -v '^\s*#' "$SUBREPOS_FILE" | grep -v '^\s*$')
 
 SUCCESS_COUNT=0
 FAILURE_COUNT=0
