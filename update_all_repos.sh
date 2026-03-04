@@ -51,8 +51,7 @@ if [ ! -f "$SUBREPOS_FILE" ]; then
     # Write .sub-repos
     {
         echo "# Sub-repos tracked by update_all_repos.sh"
-        echo "# One repo per line. Format: <name> [clone-url]"
-        echo "# If clone-url is omitted, https://github.com/$DEFAULT_ORG/<name>.git is used."
+        echo "# One repo name per line. Cloned from https://github.com/$DEFAULT_ORG/<name>.git"
         echo "# Lines starting with # are ignored."
         echo ""
         for r in "${DEFAULT_REPOS[@]}"; do
@@ -98,14 +97,8 @@ SUCCESS_COUNT=0
 FAILURE_COUNT=0
 SKIPPED_COUNT=0
 
-for REPO_ENTRY in "${REPOS[@]}"; do
-    # Support optional inline clone URL: "<name> <url>"
-    REPO=$(echo "$REPO_ENTRY" | awk '{print $1}')
-    CLONE_URL=$(echo "$REPO_ENTRY" | awk '{print $2}')
-    if [ -z "$CLONE_URL" ]; then
-        CLONE_URL="https://github.com/$DEFAULT_ORG/$REPO.git"
-    fi
-
+for REPO in "${REPOS[@]}"; do
+    CLONE_URL="https://github.com/$DEFAULT_ORG/$REPO.git"
     REPO_PATH="$SCRIPT_DIR/$REPO"
 
     if [ ! -d "$REPO_PATH" ]; then
