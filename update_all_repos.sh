@@ -1,14 +1,17 @@
 #!/bin/bash
 
 # Script to update all chutes sub-repositories
-# Performs git fetch and git pull on each sub-repository
-# Repo list is persisted in .sub-repos (untracked) after first run
+# Clones repos that are missing, pulls repos that exist.
+# Repo list is persisted in .sub-repos (untracked) after first run.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUBREPOS_FILE="$SCRIPT_DIR/.sub-repos"
 GITIGNORE_FILE="$SCRIPT_DIR/.gitignore"
+
+# Default org used to build clone URLs for repos that don't specify one
+DEFAULT_ORG="chutesai"
 
 DEFAULT_REPOS=(
     "chutes"
@@ -48,7 +51,8 @@ if [ ! -f "$SUBREPOS_FILE" ]; then
     # Write .sub-repos
     {
         echo "# Sub-repos tracked by update_all_repos.sh"
-        echo "# Edit this file to add or remove repos. One repo name per line."
+        echo "# One repo per line. Format: <name> [clone-url]"
+        echo "# If clone-url is omitted, https://github.com/$DEFAULT_ORG/<name>.git is used."
         echo "# Lines starting with # are ignored."
         echo ""
         for r in "${DEFAULT_REPOS[@]}"; do
@@ -91,18 +95,33 @@ SUCCESS_COUNT=0
 FAILURE_COUNT=0
 SKIPPED_COUNT=0
 
-for REPO in "${REPOS[@]}"; do
+for REPO_ENTRY in "${REPOS[@]}"; do
+    # Support optional inline clone URL: "<name> <url>"
+    REPO=$(echo "$REPO_ENTRY" | awk '{print $1}')
+    CLONE_URL=$(echo "$REPO_ENTRY" | awk '{print $2}')
+    if [ -z "$CLONE_URL" ]; then
+        CLONE_URL="https://github.com/$DEFAULT_ORG/$REPO.git"
+    fi
+
     REPO_PATH="$SCRIPT_DIR/$REPO"
 
     if [ ! -d "$REPO_PATH" ]; then
-        echo "[SKIP] $REPO - Directory does not exist"
-        ((SKIPPED_COUNT++))
+        echo "[CLONE] $REPO <- $CLONE_URL"
+        if /usr/bin/git clone "$CLONE_URL" "$REPO_PATH" 2>&1; then
+            echo "[CLONED] $REPO"
+            ((SUCCESS_COUNT++))
+        else
+            echo "[FAILED] $REPO - git clone failed"
+            ((FAILURE_COUNT++))
+        fi
+        echo ""
         continue
     fi
 
     if [ ! -d "$REPO_PATH/.git" ]; then
-        echo "[SKIP] $REPO - Not a git repository"
+        echo "[SKIP] $REPO - Directory exists but is not a git repository"
         ((SKIPPED_COUNT++))
+        echo ""
         continue
     fi
 

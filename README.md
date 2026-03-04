@@ -4,7 +4,7 @@ Jumpmaster is a control-plane workspace for operating in the Chutes ecosystem.
 
 Primary jobs:
 
-- **Track upstream changes across core Chutes repos** - Keep submodules current and inspect diffs quickly
+- **Track upstream changes across core Chutes repos** - Keep sub-repos current and inspect diffs quickly
 - **Build, run, deploy, and operate chutes with `deploy.sh`** - Centralized setup and lifecycle commands
 - **Wrap upstream Docker images into chutes** - Auto-discover routes and register passthrough cords
 
@@ -27,7 +27,7 @@ source .venv/bin/activate
 
 ## Core Sub-Repositories
 
-This repository is a workspace for several core Chutes repos. These are tracked as git submodules and updated via `update_all_repos.sh`.
+This repository is a workspace for several core Chutes repos, managed locally via `update_all_repos.sh`.
 
 | Repository | Purpose | URL |
 |-----------|---------|-----|
@@ -57,7 +57,7 @@ Use this loop to stay current and operational:
    ```bash
    ./update_all_repos.sh
    ```
-2. Inspect what changed in submodules (`chutes/`, `chutes-api/`, `chutes-miner/`, etc.) using your IDE or git diff tools.
+2. Inspect what changed in the sub-repos (`chutes/`, `chutes-api/`, `chutes-miner/`, etc.) using your IDE or git diff tools.
 3. Use `deploy.sh` to build, deploy, check status, stream logs, and warm chutes as needed.
 
 ---
@@ -259,11 +259,11 @@ chutes-jumpmaster/
 │   ├── discover_routes.py       # OpenAPI probing and route discovery
 │   ├── create_chute_from_image.py  # Generate chute from Docker image
 │   └── instance_logs.py         # Watcher-first log utility (legacy fallback included)
-├── chutes/                      # Chutes Python SDK (git submodule)
-├── chutes-api/                  # API server (git submodule)
-├── chutes-miner/                # Miner code (git submodule)
-├── chutes-e2ee-transport/       # E2EE transport (git submodule)
-├── sek8s/                       # Kubernetes integration (git submodule)
+├── chutes/                      # Chutes Python SDK (cloned by update_all_repos.sh)
+├── chutes-api/                  # API server (cloned by update_all_repos.sh)
+├── chutes-miner/                # Miner code (cloned by update_all_repos.sh)
+├── chutes-e2ee-transport/       # E2EE transport (cloned by update_all_repos.sh)
+├── sek8s/                       # Kubernetes integration (cloned by update_all_repos.sh)
 ├── DOCKER_TROUBLESHOOTING.md    # Notes on Python/inspecto issues
 └── README.md
 ```
