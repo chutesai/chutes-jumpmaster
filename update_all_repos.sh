@@ -135,8 +135,15 @@ for REPO in "${REPOS[@]}"; do
         echo "[WARN]  $REPO is on '$CURRENT_BRANCH', not '$DEFAULT_BRANCH' — pull may not reflect latest upstream"
     fi
 
-    if /usr/bin/git -C "$REPO_PATH" pull 2>&1; then
-        echo "[UPDATED] $REPO (branch: $CURRENT_BRANCH)"
+    PULL_OUTPUT=$(/usr/bin/git -C "$REPO_PATH" pull 2>&1)
+    PULL_STATUS=$?
+    echo "$PULL_OUTPUT"
+    if [ $PULL_STATUS -eq 0 ]; then
+        if echo "$PULL_OUTPUT" | grep -q "Already up to date"; then
+            echo "[OK] $REPO (branch: $CURRENT_BRANCH)"
+        else
+            echo "[UPDATED] $REPO (branch: $CURRENT_BRANCH)"
+        fi
         ((SUCCESS_COUNT++))
     else
         echo "[FAILED] $REPO - git pull failed"
