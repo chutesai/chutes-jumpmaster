@@ -39,10 +39,5 @@ config.ini
 # Sub-repo list (user-local, managed by update_all_repos.sh)
 .sub-repos
 
-# Sub-repo directories (cloned and managed by update_all_repos.sh)
-#/chutes/
-#/chutes-api/
-#/chutes-miner/
-#/chutes-e2ee-transport/
-#/sek8s/
+# Extra sub-repo directories are added here automatically by update_all_repos.sh on first run
 
