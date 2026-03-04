@@ -40,9 +40,9 @@ config.ini
 .sub-repos
 
 # Sub-repo directories (cloned and managed by update_all_repos.sh)
-/chutes/
-/chutes-api/
-/chutes-miner/
-/chutes-e2ee-transport/
-/sek8s/
+#/chutes/
+#/chutes-api/
+#/chutes-miner/
+#/chutes-e2ee-transport/
+#/sek8s/
 
