@@ -1703,30 +1703,58 @@ PY
         return 1
     fi
 
-    print_info "Fetching /users/me..."
     local auth_header_primary="$api_key"
     local auth_header_secondary="Bearer ${api_key}"
-
-    local user_tmp
-    user_tmp=$(mktemp)
-    local code
-    code=$(curl -sS -o "$user_tmp" -w "%{http_code}" -H "Authorization: ${auth_header_primary}" "${base_url}/users/me" || true)
-    if [[ "$code" != "200" ]]; then
-        code=$(curl -sS -o "$user_tmp" -w "%{http_code}" -H "Authorization: ${auth_header_secondary}" "${base_url}/users/me" || true)
-        if [[ "$code" == "200" ]]; then
-            local tmp="$auth_header_primary"
-            auth_header_primary="$auth_header_secondary"
-            auth_header_secondary="$tmp"
-        fi
+    if [[ "$api_key" =~ ^[Bb]earer[[:space:]]+ ]]; then
+        auth_header_primary="$api_key"
+        auth_header_secondary="$api_key"
     fi
     local username=""
     local user_id=""
     local payment_address=""
     local developer_payment_address=""
 
-    if [[ "$code" == "200" ]]; then
-        local fields
-        fields=$(python3 - "$user_tmp" <<'PY'
+    echo ""
+    print_info "Coldkey: ${coldkey_ss58}"
+    print_info "Hotkey:  ${hotkey_ss58address}"
+    echo ""
+
+    if ! confirm "Update /users/change_bt_auth now?" "y"; then
+        print_warning "Cancelled"
+        return 0
+    fi
+
+    local payload
+    payload=$(printf '{"coldkey":"%s","hotkey":"%s"}' "$coldkey_ss58" "$hotkey_ss58address")
+
+    local resp_tmp
+    resp_tmp=$(mktemp)
+    local code
+    code=$(curl -sS --connect-timeout 10 --max-time 30 -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
+        -H "Authorization: ${auth_header_primary}" \
+        -H "Content-Type: application/json" \
+        -d "$payload" || true)
+    if [[ ! "$code" =~ ^2 ]]; then
+        code=$(curl -sS --connect-timeout 10 --max-time 30 -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
+            -H "Authorization: ${auth_header_secondary}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" || true)
+        if [[ "$code" =~ ^2 ]]; then
+            local tmp="$auth_header_primary"
+            auth_header_primary="$auth_header_secondary"
+            auth_header_secondary="$tmp"
+        fi
+    fi
+    if [[ ! "$code" =~ ^2 ]]; then
+        print_error "Failed to update /users/change_bt_auth (HTTP $code)"
+        head -c 300 "$resp_tmp" 2>/dev/null || true
+        echo ""
+        rm -f "$resp_tmp"
+        return 1
+    fi
+
+    local fields
+    fields=$(python3 - "$resp_tmp" <<'PY'
 import json, sys
 
 path = sys.argv[1]
@@ -1758,71 +1786,12 @@ devpay = find_first(data, ["developer_payment_address", "developerPaymentAddress
 print("\t".join([username, user_id, pay, devpay]))
 PY
 ) || true
-        IFS=$'\t' read -r username user_id payment_address developer_payment_address <<<"$fields"
-    else
-        print_warning "Failed to fetch /users/me (HTTP $code). Will still try /users/change_bt_auth."
-        head -c 300 "$user_tmp" 2>/dev/null || true
-        echo ""
-    fi
-    rm -f "$user_tmp"
+    IFS=$'\t' read -r username user_id payment_address developer_payment_address <<<"$fields"
 
-    echo ""
     [[ -n "$username" && -n "$user_id" ]] && print_info "Account: ${username} (${user_id})"
-    print_info "Coldkey: ${coldkey_ss58}"
-    print_info "Hotkey:  ${hotkey_ss58address}"
-    echo ""
-
-    if ! confirm "Update /users/change_bt_auth now?" "y"; then
-        print_warning "Cancelled"
-        return 0
-    fi
-
-    local payload
-    payload=$(printf '{"coldkey":"%s","hotkey":"%s"}' "$coldkey_ss58" "$hotkey_ss58address")
-
-    local resp_tmp
-    resp_tmp=$(mktemp)
-    code=$(curl -sS -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
-        -H "Authorization: ${auth_header_primary}" \
-        -H "Content-Type: application/json" \
-        -d "$payload" || true)
-    if [[ ! "$code" =~ ^2 ]]; then
-        code=$(curl -sS -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
-            -H "Authorization: ${auth_header_secondary}" \
-            -H "Content-Type: application/json" \
-            -d "$payload" || true)
-    fi
-    if [[ ! "$code" =~ ^2 ]]; then
-        print_error "Failed to update /users/change_bt_auth (HTTP $code)"
-        head -c 300 "$resp_tmp" 2>/dev/null || true
-        echo ""
-        rm -f "$resp_tmp"
-        return 1
-    fi
-
-    # If /users/me didn't yield identity, parse it from the change_bt_auth response.
-    if [[ -z "$username" || -z "$user_id" ]]; then
-        mapfile -t parsed_ident < <(python3 - "$resp_tmp" <<'PY'
-import json, sys
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as f:
-    d = json.load(f)
-def pick(*keys):
-    for k in keys:
-        v = d.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return ""
-print(pick("username"))
-print(pick("user_id", "id", "uid"))
-PY
-) || true
-        username="${parsed_ident[0]:-}"
-        user_id="${parsed_ident[1]:-}"
-    fi
 
     if [[ -z "$username" || -z "$user_id" ]]; then
-        print_error "Could not determine username/user_id for config. Re-run, or fill config.ini manually."
+        print_error "Could not determine username/user_id from /users/change_bt_auth. Re-run, or fill config.ini manually."
         rm -f "$resp_tmp"
         return 1
     fi

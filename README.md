@@ -139,7 +139,7 @@ Chutes behaves like a less restrictive, GPU-aware AWS Lambda. Containers can sta
 Interactive wizard that:
 - Installs `uv` and creates `.venv` (Python 3.11)
 - Installs the `chutes` CLI and supporting deps
-- Helps you register a new Chutes account *or* link an existing website account to a Bittensor wallet in `~/.chutes/config.ini`
+- Helps you register a new Chutes account *or* link an existing website account to a Bittensor wallet via `/users/change_bt_auth`, then write `~/.chutes/config.ini`
 
 ### 2. Build & Deploy (`./utils.sh`)
 
@@ -148,7 +148,7 @@ Interactive hub with 13 menu options, or use flags directly:
 | Category | Option | Capability |
 |----------|--------|------------|
 | Account | **1** | Show username + payment address from config |
-| Account | **2** | Link existing Chutes account to local Bittensor wallet and write `~/.chutes/config.ini` |
+| Account | **2** | Link existing Chutes account to local Bittensor wallet via `/users/change_bt_auth` and write `~/.chutes/config.ini` |
 | Build/Discovery | **3** | Build from local `deploy_*.py` (wraps `CHUTE_BASE_IMAGE`) |
 | Build/Discovery | **4** | Create a chute definition from an existing Docker image |
 | Local Run | **5** | Run wrapped service in Docker (GPU sanity check) |
