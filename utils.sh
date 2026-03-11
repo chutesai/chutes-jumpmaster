@@ -111,6 +111,70 @@ get_user_id() {
     grep -E "^user_id\s*=" "$CHUTES_CONFIG" 2>/dev/null | cut -d'=' -f2 | tr -d ' '
 }
 
+chutes_api_get_self_tsv() {
+    ensure_chutes_config || return 1
+
+    local py_bin="$VENV_DIR/bin/python3"
+    if [[ ! -x "$py_bin" ]]; then
+        return 1
+    fi
+
+    "$py_bin" - "$CHUTES_CONFIG" <<'PYCODE'
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from configparser import ConfigParser
+
+from substrateinterface import Keypair
+
+
+config_path = sys.argv[1]
+config = ConfigParser()
+config.read(config_path)
+
+base_url = config.get("api", "base_url", fallback="https://api.chutes.ai").rstrip("/")
+hotkey = config.get("auth", "hotkey_ss58address", fallback="").strip()
+seed = config.get("auth", "hotkey_seed", fallback="").strip().removeprefix("0x")
+user_id = config.get("auth", "user_id", fallback="").strip()
+
+if not hotkey or not seed:
+    raise SystemExit(1)
+
+nonce = str(int(time.time()))
+message = f"{hotkey}:{nonce}:me"
+signature = Keypair.create_from_seed(seed_hex=seed).sign(message.encode()).hex()
+headers = {
+    "X-Chutes-Hotkey": hotkey,
+    "X-Chutes-Nonce": nonce,
+    "X-Chutes-Signature": signature,
+}
+if user_id:
+    headers["X-Chutes-UserID"] = user_id
+
+request = urllib.request.Request(f"{base_url}/users/me", headers=headers, method="GET")
+try:
+    with urllib.request.urlopen(request, timeout=15) as response:
+        data = json.load(response)
+except urllib.error.HTTPError as exc:
+    body = exc.read(300).decode("utf-8", "replace")
+    sys.stderr.write(f"HTTP {exc.code}: {body}\n")
+    raise SystemExit(1)
+except Exception as exc:
+    sys.stderr.write(f"{exc}\n")
+    raise SystemExit(1)
+
+fields = [
+    data.get("username", ""),
+    data.get("user_id", ""),
+    data.get("payment_address", ""),
+    "" if data.get("balance") is None else str(data.get("balance")),
+]
+sys.stdout.write("\t".join(fields) + "\n")
+PYCODE
+}
+
 chutes_api_list_tsv() {
     # Query Chutes API directly (signed with hotkey) to avoid rich-table truncation.
     # Output: tab-delimited rows for the given object type.
@@ -1857,10 +1921,17 @@ show_account_info() {
     local username=$(get_username)
     local user_id=$(get_user_id)
     local payment=$(grep -E "^address\s*=" "$CHUTES_CONFIG" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+    local balance=""
+    local live_fields=""
+
+    if live_fields=$(chutes_api_get_self_tsv 2>/dev/null); then
+        IFS=$'\t' read -r username user_id payment balance <<<"$live_fields"
+    fi
     
     echo -e "${BLUE}Username:${NC}        ${username:-<not set>}"
     echo -e "${BLUE}User ID:${NC}         ${user_id:-<not set>}"
     echo -e "${BLUE}Payment Address:${NC} ${payment:-<not set>}"
+    [[ -n "$balance" ]] && echo -e "${BLUE}Balance:${NC}         ${balance}"
     echo ""
     print_info "Add TAO to payment address for deployments"
     print_info "Account needs >= \$50 USD balance for remote builds"
