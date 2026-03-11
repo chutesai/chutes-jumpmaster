@@ -103,6 +103,14 @@ ensure_chutes_config() {
     fi
 }
 
+run_tools_py() {
+    local py_bin="python3"
+    if [[ -x "$VENV_DIR/bin/python3" ]]; then
+        py_bin="$VENV_DIR/bin/python3"
+    fi
+    "$py_bin" "$SCRIPT_DIR/tools/shell_helpers.py" "$@"
+}
+
 get_username() {
     grep -E "^username\s*=" "$CHUTES_CONFIG" 2>/dev/null | cut -d'=' -f2 | tr -d ' '
 }
@@ -114,65 +122,7 @@ get_user_id() {
 chutes_api_get_self_tsv() {
     ensure_chutes_config || return 1
 
-    local py_bin="$VENV_DIR/bin/python3"
-    if [[ ! -x "$py_bin" ]]; then
-        return 1
-    fi
-
-    "$py_bin" - "$CHUTES_CONFIG" <<'PYCODE'
-import json
-import sys
-import time
-import urllib.error
-import urllib.request
-from configparser import ConfigParser
-
-from substrateinterface import Keypair
-
-
-config_path = sys.argv[1]
-config = ConfigParser()
-config.read(config_path)
-
-base_url = config.get("api", "base_url", fallback="https://api.chutes.ai").rstrip("/")
-hotkey = config.get("auth", "hotkey_ss58address", fallback="").strip()
-seed = config.get("auth", "hotkey_seed", fallback="").strip().removeprefix("0x")
-user_id = config.get("auth", "user_id", fallback="").strip()
-
-if not hotkey or not seed:
-    raise SystemExit(1)
-
-nonce = str(int(time.time()))
-message = f"{hotkey}:{nonce}:me"
-signature = Keypair.create_from_seed(seed_hex=seed).sign(message.encode()).hex()
-headers = {
-    "X-Chutes-Hotkey": hotkey,
-    "X-Chutes-Nonce": nonce,
-    "X-Chutes-Signature": signature,
-}
-if user_id:
-    headers["X-Chutes-UserID"] = user_id
-
-request = urllib.request.Request(f"{base_url}/users/me", headers=headers, method="GET")
-try:
-    with urllib.request.urlopen(request, timeout=15) as response:
-        data = json.load(response)
-except urllib.error.HTTPError as exc:
-    body = exc.read(300).decode("utf-8", "replace")
-    sys.stderr.write(f"HTTP {exc.code}: {body}\n")
-    raise SystemExit(1)
-except Exception as exc:
-    sys.stderr.write(f"{exc}\n")
-    raise SystemExit(1)
-
-fields = [
-    data.get("username", ""),
-    data.get("user_id", ""),
-    data.get("payment_address", ""),
-    "" if data.get("balance") is None else str(data.get("balance")),
-]
-sys.stdout.write("\t".join(fields) + "\n")
-PYCODE
+    run_tools_py fetch-self-with-config "$CHUTES_CONFIG"
 }
 
 chutes_api_list_tsv() {
@@ -186,77 +136,7 @@ chutes_api_list_tsv() {
     ensure_venv
     ensure_chutes_config || return 1
 
-    python - "$object_type" "$include_public" <<'PYCODE'
-import asyncio
-import sys
-
-import aiohttp
-
-from chutes.config import get_config
-from chutes.util.auth import sign_request
-
-
-def _truthy(s: str) -> bool:
-    return str(s).strip().lower() in ("1", "true", "yes", "y", "on")
-
-
-object_type = sys.argv[1]
-include_public = _truthy(sys.argv[2]) if len(sys.argv) > 2 else False
-
-
-def out(fields):
-    sys.stdout.write(
-        "\t".join("" if v is None else str(v).replace("\t", " ") for v in fields) + "\n"
-    )
-
-
-async def fetch_all():
-    config = get_config()
-    headers, _ = sign_request(purpose=object_type)
-    items = []
-    page = 0
-    limit = 200
-    base_params = {}
-    if include_public:
-        base_params["include_public"] = "true"
-
-    async with aiohttp.ClientSession(base_url=config.generic.api_base_url) as session:
-        while True:
-            params = dict(base_params)
-            params["limit"] = str(limit)
-            params["page"] = str(page)
-            async with session.get(f"/{object_type}/", headers=headers, params=params) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    raise SystemExit(
-                        f"Failed to list {object_type}: {resp.status} {text[:300]}"
-                    )
-                data = await resp.json()
-
-            batch = data.get("items") or []
-            items.extend(batch)
-            total = int(data.get("total") or 0)
-            if not batch or len(items) >= total:
-                break
-            page += 1
-
-    return items
-
-
-items = asyncio.run(fetch_all())
-for item in items:
-    if object_type == "chutes":
-        out(
-            [
-                item.get("chute_id"),
-                item.get("name"),
-                "hot" if item.get("hot") else "cold",
-                item.get("slug"),
-            ]
-        )
-    elif object_type == "images":
-        out([item.get("image_id"), item.get("name"), item.get("tag"), item.get("status")])
-PYCODE
+    run_tools_py list-api-tsv "$object_type" "$include_public"
 }
 
 show_usage() {
@@ -405,14 +285,14 @@ run_route_discovery_for_module() {
     ensure_venv
     pushd "$SCRIPT_DIR" >/dev/null || return 1
 
-    local cmd=(python tools/discover_routes.py --chute-file "$chute_file" --startup-delay "$startup_delay" --probe-timeout "$probe_timeout")
+    local cmd=(discover-routes --chute-file "$chute_file" --startup-delay "$startup_delay" --probe-timeout "$probe_timeout")
     if [[ -n "$docker_gpus" ]]; then
         cmd+=(--docker-gpus "$docker_gpus")
     fi
 
-    print_cmd "${cmd[*]}"
+    print_cmd "run_tools_py ${cmd[*]}"
     echo ""
-    "${cmd[@]}"
+    run_tools_py "${cmd[@]}"
     local status=$?
     popd >/dev/null || true
 
@@ -801,27 +681,7 @@ get_image_name() {
     
     # Try to extract image name and tag using Python (handles variable references)
     local result
-    result=$(python3 -c "
-import re
-import sys
-
-content = open('$py_file').read()
-
-# Try to find CHUTE_NAME and CHUTE_TAG variables first
-name_match = re.search(r'^CHUTE_NAME\s*=\s*[\"\\']([^\"\\']+)[\"\\']', content, re.MULTILINE)
-tag_match = re.search(r'^CHUTE_TAG\s*=\s*[\"\\']([^\"\\']+)[\"\\']', content, re.MULTILINE)
-
-if name_match and tag_match:
-    print(f'{name_match.group(1)}:{tag_match.group(1)}')
-    sys.exit(0)
-
-# Fallback: try to find name= and tag= in Image() constructor with string literals
-name_match = re.search(r'Image\s*\([^)]*name\s*=\s*[\"\\']([^\"\\']+)[\"\\']', content, re.DOTALL)
-tag_match = re.search(r'Image\s*\([^)]*tag\s*=\s*[\"\\']([^\"\\']+)[\"\\']', content, re.DOTALL)
-
-if name_match and tag_match:
-    print(f'{name_match.group(1)}:{tag_match.group(1)}')
-" 2>/dev/null)
+    result=$(run_tools_py get-image-name "$py_file" 2>/dev/null || true)
     
     echo "$result"
 }
@@ -869,7 +729,7 @@ verify_chute_cords() {
         
         # Extract and display paths
         local paths
-        paths=$(echo "$schema" | python3 -c "import sys, json; d=json.load(sys.stdin); print('\n'.join(d.get('paths', {}).keys()))" 2>/dev/null)
+        paths=$(printf '%s' "$schema" | run_tools_py openapi-paths 2>/dev/null || true)
         
         if [[ -n "$paths" ]]; then
             echo -e "\n${BLUE}Available Cords:${NC}"
@@ -913,6 +773,12 @@ get_fingerprint() {
         return 0
     fi
     return 1
+}
+
+fetch_self_with_fingerprint_tsv() {
+    local base_url="$1"
+    local fingerprint="$2"
+    run_tools_py fetch-self-with-fingerprint "$base_url" "$fingerprint"
 }
 
 get_api_base_url() {
@@ -1424,30 +1290,7 @@ do_check_logs_legacy_poll() {
         fi
 
         local instance_ids
-        instance_ids=$(python3 - "$tmp_output" <<'PYCODE'
-import json, re, sys
-path = sys.argv[1]
-try:
-    with open(path, encoding="utf-8", errors="replace") as f:
-        text = f.read()
-    match = re.search(r'\{[\s\S]*\}', text)
-    if not match:
-        sys.exit(0)
-    data = json.loads(match.group())
-    instances = data.get("instances") or []
-    if not instances:
-        sys.exit(0)
-    
-    def sort_key(inst):
-        # Prefer active and verified instances
-        return (not inst.get("active", False), not inst.get("verified", False), inst.get("last_verified_at") or "")
-    
-    instances = sorted(instances, key=sort_key)
-    print("\n".join(inst["instance_id"] for inst in instances))
-except Exception:
-    sys.exit(0)
-PYCODE
-)
+        instance_ids=$(run_tools_py parse-instance-ids "$tmp_output" 2>/dev/null || true)
         rm -f "$tmp_output"
 
         if [[ -z "$instance_ids" ]]; then
@@ -1749,31 +1592,7 @@ do_link_bittensor_wallet() {
     fi
 
     local parsed
-    parsed=$(python3 - "$hotkey_file" <<'PY'
-import json, sys
-
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-def pick(d, keys):
-    for k in keys:
-        v = d.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return ""
-
-ss58 = pick(data, ["ss58Address", "ss58_address", "ss58"])
-seed = pick(data, ["secretSeed", "secret_seed", "seed"])
-if seed.startswith("0x"):
-    seed = seed[2:]
-
-if not ss58 or not seed:
-    raise SystemExit("missing ss58Address or secretSeed")
-
-print(f"{ss58}\t{seed}")
-PY
-) || {
+    parsed=$(run_tools_py parse-hotkey-file "$hotkey_file") || {
         print_error "Failed to parse hotkey JSON (need ss58Address + secretSeed): $hotkey_file"
         return 1
     }
@@ -1791,78 +1610,78 @@ PY
     local payment_address=""
     local developer_payment_address=""
     local derived_user_id=""
-    derived_user_id=$(python3 - "$fingerprint" <<'PY'
-import hashlib, sys, uuid
+    local current_hotkey=""
+    local current_coldkey=""
+    derived_user_id=$(run_tools_py derive-user-id "$fingerprint" 2>/dev/null) || true
 
-fingerprint = sys.argv[1]
-fingerprint_hash = hashlib.blake2b(fingerprint.encode()).hexdigest()
-print(uuid.uuid5(uuid.NAMESPACE_OID, fingerprint_hash))
-PY
-) || true
+    local current_fields=""
+    current_fields=$(fetch_self_with_fingerprint_tsv "$base_url" "$fingerprint") || {
+        print_error "Could not authenticate fingerprint via /users/login and /users/me."
+        return 1
+    }
+    IFS=$'\t' read -r username user_id payment_address current_hotkey current_coldkey <<<"$current_fields"
 
     echo ""
     [[ -n "$derived_user_id" ]] && print_info "Derived user_id: ${derived_user_id}"
+    [[ -n "$username" && -n "$user_id" ]] && print_info "Account: ${username} (${user_id})"
+    [[ -n "$current_coldkey" ]] && print_info "Current coldkey: ${current_coldkey}"
+    [[ -n "$current_hotkey" ]] && print_info "Current hotkey:  ${current_hotkey}"
     print_info "Coldkey: ${coldkey_ss58}"
     print_info "Hotkey:  ${hotkey_ss58address}"
     echo ""
+
+    if [[ -n "$derived_user_id" && -n "$user_id" && "$derived_user_id" != "$user_id" ]]; then
+        print_warning "Derived user_id did not match API response; using the API response."
+    fi
 
     if ! confirm "Update /users/change_bt_auth now?" "y"; then
         print_warning "Cancelled"
         return 0
     fi
 
-    local payload
-    payload=$(printf '{"coldkey":"%s","hotkey":"%s"}' "$coldkey_ss58" "$hotkey_ss58address")
+    local payload_parts=()
+    [[ "$current_coldkey" != "$coldkey_ss58" ]] && payload_parts+=("\"coldkey\":\"${coldkey_ss58}\"")
+    [[ "$current_hotkey" != "$hotkey_ss58address" ]] && payload_parts+=("\"hotkey\":\"${hotkey_ss58address}\"")
+
+    local needs_update=false
+    [[ ${#payload_parts[@]} -gt 0 ]] && needs_update=true
 
     local resp_tmp
     resp_tmp=$(mktemp)
-    local code
-    code=$(curl -sS --connect-timeout 10 --max-time 30 -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
-        -H "Authorization: ${fingerprint}" \
-        -H "Content-Type: application/json" \
-        -d "$payload" || true)
-    if [[ ! "$code" =~ ^2 ]]; then
-        print_error "Failed to update /users/change_bt_auth (HTTP $code)"
-        head -c 300 "$resp_tmp" 2>/dev/null || true
-        echo ""
-        rm -f "$resp_tmp"
-        return 1
+    if $needs_update; then
+        local payload="{"
+        local sep=""
+        local part
+        for part in "${payload_parts[@]}"; do
+            payload+="${sep}${part}"
+            sep=","
+        done
+        payload+="}"
+
+        local code
+        code=$(curl -sS --connect-timeout 10 --max-time 30 -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
+            -H "Authorization: ${fingerprint}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" || true)
+        if [[ ! "$code" =~ ^2 ]]; then
+            print_error "Failed to update /users/change_bt_auth (HTTP $code)"
+            head -c 300 "$resp_tmp" 2>/dev/null || true
+            echo ""
+            rm -f "$resp_tmp"
+            return 1
+        fi
+    else
+        print_info "Wallet is already linked to this account; writing config only."
     fi
 
-    local fields
-    fields=$(python3 - "$resp_tmp" <<'PY'
-import json, sys
-
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-def find_first(obj, keys):
-    if isinstance(obj, dict):
-        for k in keys:
-            v = obj.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-        for v in obj.values():
-            r = find_first(v, keys)
-            if r:
-                return r
-    elif isinstance(obj, list):
-        for v in obj:
-            r = find_first(v, keys)
-            if r:
-                return r
-    return ""
-
-username = find_first(data, ["username", "user_name", "name"])
-user_id = find_first(data, ["user_id", "id", "uid"])
-pay = find_first(data, ["payment_address", "paymentAddress", "address"])
-devpay = find_first(data, ["developer_payment_address", "developerPaymentAddress", "developer_address", "developerAddress"])
-
-print("\t".join([username, user_id, pay, devpay]))
-PY
-) || true
-    IFS=$'\t' read -r username user_id payment_address developer_payment_address <<<"$fields"
+    local refreshed_fields=""
+    if refreshed_fields=$(fetch_self_with_fingerprint_tsv "$base_url" "$fingerprint"); then
+        IFS=$'\t' read -r username user_id payment_address current_hotkey current_coldkey <<<"$refreshed_fields"
+    elif $needs_update; then
+        local fields
+        fields=$(run_tools_py parse-account-response "$resp_tmp" 2>/dev/null) || true
+        IFS=$'\t' read -r username user_id payment_address developer_payment_address <<<"$fields"
+    fi
 
     if [[ -z "$user_id" && -n "$derived_user_id" ]]; then
         user_id="$derived_user_id"
@@ -1971,7 +1790,7 @@ do_create_from_image() {
     ensure_venv
     
     local cmd=(
-        python3 "$SCRIPT_DIR/tools/create_chute_from_image.py" "$image"
+        create-chute-from-image "$image"
         "--gpus" "$gpus"
         "--startup-delay" "$DEFAULT_STARTUP_DELAY"
         "--probe-timeout" "$DEFAULT_PROBE_TIMEOUT"
@@ -1985,8 +1804,8 @@ do_create_from_image() {
         cmd+=("${env_args[@]}")
     fi
     
-    print_cmd "${cmd[*]}"
-    "${cmd[@]}"
+    print_cmd "run_tools_py ${cmd[*]}"
+    run_tools_py "${cmd[@]}"
 }
 
 # =============================================================================

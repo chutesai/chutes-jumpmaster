@@ -96,6 +96,10 @@ prompt_secret() {
     echo "$result"
 }
 
+run_tools_py() {
+    python3 "$SCRIPT_DIR/tools/shell_helpers.py" "$@"
+}
+
 show_usage() {
     cat << EOF
 ${CYAN}Chutes Setup Script${NC}
@@ -449,6 +453,12 @@ get_api_base_url() {
     echo "https://api.chutes.ai"
 }
 
+fetch_self_with_fingerprint_tsv() {
+    local base_url="$1"
+    local fingerprint="$2"
+    run_tools_py fetch-self-with-fingerprint "$base_url" "$fingerprint"
+}
+
 link_existing_chutes_account() {
     print_header "Link Existing Chutes Account (website → CLI)"
 
@@ -541,31 +551,7 @@ link_existing_chutes_account() {
     fi
 
     local parsed
-    parsed=$(python3 - "$hotkey_file" <<'PY'
-import json, sys
-
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-def pick(d, keys):
-    for k in keys:
-        v = d.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return ""
-
-ss58 = pick(data, ["ss58Address", "ss58_address", "ss58"])
-seed = pick(data, ["secretSeed", "secret_seed", "seed"])
-if seed.startswith("0x"):
-    seed = seed[2:]
-
-if not ss58 or not seed:
-    raise SystemExit("missing ss58Address or secretSeed")
-
-print(f"{ss58}\t{seed}")
-PY
-) || {
+    parsed=$(run_tools_py parse-hotkey-file "$hotkey_file") || {
         print_error "Failed to parse hotkey JSON (need ss58Address + secretSeed): $hotkey_file"
         return 1
     }
@@ -583,78 +569,78 @@ PY
     local payment_address=""
     local developer_payment_address=""
     local derived_user_id=""
-    derived_user_id=$(python3 - "$fingerprint" <<'PY'
-import hashlib, sys, uuid
+    local current_hotkey=""
+    local current_coldkey=""
+    derived_user_id=$(run_tools_py derive-user-id "$fingerprint" 2>/dev/null) || true
 
-fingerprint = sys.argv[1]
-fingerprint_hash = hashlib.blake2b(fingerprint.encode()).hexdigest()
-print(uuid.uuid5(uuid.NAMESPACE_OID, fingerprint_hash))
-PY
-) || true
+    local current_fields=""
+    current_fields=$(fetch_self_with_fingerprint_tsv "$base_url" "$fingerprint") || {
+        print_error "Could not authenticate fingerprint via /users/login and /users/me."
+        return 1
+    }
+    IFS=$'\t' read -r username user_id payment_address current_hotkey current_coldkey <<<"$current_fields"
 
     echo ""
     [[ -n "$derived_user_id" ]] && print_info "Derived user_id: ${derived_user_id}"
+    [[ -n "$username" && -n "$user_id" ]] && print_info "Account: ${username} (${user_id})"
+    [[ -n "$current_coldkey" ]] && print_info "Current coldkey: ${current_coldkey}"
+    [[ -n "$current_hotkey" ]] && print_info "Current hotkey:  ${current_hotkey}"
     print_info "Coldkey: ${coldkey_ss58}"
     print_info "Hotkey:  ${hotkey_ss58address}"
     echo ""
+
+    if [[ -n "$derived_user_id" && -n "$user_id" && "$derived_user_id" != "$user_id" ]]; then
+        print_warning "Derived user_id did not match API response; using the API response."
+    fi
 
     if ! confirm "Update /users/change_bt_auth now?" "y"; then
         print_warning "Cancelled"
         return 0
     fi
 
-    local payload
-    payload=$(printf '{"coldkey":"%s","hotkey":"%s"}' "$coldkey_ss58" "$hotkey_ss58address")
+    local payload_parts=()
+    [[ "$current_coldkey" != "$coldkey_ss58" ]] && payload_parts+=("\"coldkey\":\"${coldkey_ss58}\"")
+    [[ "$current_hotkey" != "$hotkey_ss58address" ]] && payload_parts+=("\"hotkey\":\"${hotkey_ss58address}\"")
+
+    local needs_update=false
+    [[ ${#payload_parts[@]} -gt 0 ]] && needs_update=true
 
     local resp_tmp
     resp_tmp=$(mktemp)
-    local code
-    code=$(curl -sS --connect-timeout 10 --max-time 30 -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
-        -H "Authorization: ${fingerprint}" \
-        -H "Content-Type: application/json" \
-        -d "$payload" || true)
-    if [[ ! "$code" =~ ^2 ]]; then
-        print_error "Failed to update /users/change_bt_auth (HTTP $code)"
-        head -c 300 "$resp_tmp" 2>/dev/null || true
-        echo ""
-        rm -f "$resp_tmp"
-        return 1
+    if $needs_update; then
+        local payload="{"
+        local sep=""
+        local part
+        for part in "${payload_parts[@]}"; do
+            payload+="${sep}${part}"
+            sep=","
+        done
+        payload+="}"
+
+        local code
+        code=$(curl -sS --connect-timeout 10 --max-time 30 -o "$resp_tmp" -w "%{http_code}" -X POST "${base_url}/users/change_bt_auth" \
+            -H "Authorization: ${fingerprint}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" || true)
+        if [[ ! "$code" =~ ^2 ]]; then
+            print_error "Failed to update /users/change_bt_auth (HTTP $code)"
+            head -c 300 "$resp_tmp" 2>/dev/null || true
+            echo ""
+            rm -f "$resp_tmp"
+            return 1
+        fi
+    else
+        print_info "Wallet is already linked to this account; writing config only."
     fi
 
-    local fields
-    fields=$(python3 - "$resp_tmp" <<'PY'
-import json, sys
-
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-def find_first(obj, keys):
-    if isinstance(obj, dict):
-        for k in keys:
-            v = obj.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-        for v in obj.values():
-            r = find_first(v, keys)
-            if r:
-                return r
-    elif isinstance(obj, list):
-        for v in obj:
-            r = find_first(v, keys)
-            if r:
-                return r
-    return ""
-
-username = find_first(data, ["username", "user_name", "name"])
-user_id = find_first(data, ["user_id", "id", "uid"])
-pay = find_first(data, ["payment_address", "paymentAddress", "address"])
-devpay = find_first(data, ["developer_payment_address", "developerPaymentAddress", "developer_address", "developerAddress"])
-
-print("\t".join([username, user_id, pay, devpay]))
-PY
-) || true
-    IFS=$'\t' read -r username user_id payment_address developer_payment_address <<<"$fields"
+    local refreshed_fields=""
+    if refreshed_fields=$(fetch_self_with_fingerprint_tsv "$base_url" "$fingerprint"); then
+        IFS=$'\t' read -r username user_id payment_address current_hotkey current_coldkey <<<"$refreshed_fields"
+    elif $needs_update; then
+        local fields
+        fields=$(run_tools_py parse-account-response "$resp_tmp" 2>/dev/null) || true
+        IFS=$'\t' read -r username user_id payment_address developer_payment_address <<<"$fields"
+    fi
 
     rm -f "$resp_tmp"
 
