@@ -44,5 +44,6 @@ config.ini
 /chutes-api
 /chutes-miner
 /chutes-e2ee-transport
+/e2ee-proxy
 /sek8s
 /chutes-web

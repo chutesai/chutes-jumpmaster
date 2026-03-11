@@ -18,6 +18,7 @@ DEFAULT_REPOS=(
     "chutes-api"
     "chutes-miner"
     "chutes-e2ee-transport"
+    "e2ee-proxy"
     "sek8s"
 )
 

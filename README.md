@@ -34,6 +34,7 @@ This repository is a workspace for several core Chutes repos, managed locally vi
 | `chutes-api/` | API server and validation logic | [github.com/chutesai/chutes-api](https://github.com/chutesai/chutes-api) |
 | `chutes-miner/` | GPU miner code for running chutes | [github.com/chutesai/chutes-miner](https://github.com/chutesai/chutes-miner) |
 | `chutes-e2ee-transport/` | End-to-end encrypted communication | [github.com/chutesai/chutes-e2ee-transport](https://github.com/chutesai/chutes-e2ee-transport) |
+| `e2ee-proxy/` | Local OpenAI-compatible E2EE proxy | [github.com/chutesai/e2ee-proxy](https://github.com/chutesai/e2ee-proxy) |
 | `sek8s/` | Kubernetes integration and infrastructure | [github.com/chutesai/sek8s](https://github.com/chutesai/sek8s) |
 
 ### Keeping Repos in Sync
@@ -260,6 +261,7 @@ chutes-jumpmaster/
 ├── chutes-api/                  # API server (cloned by update_all_repos.sh)
 ├── chutes-miner/                # Miner code (cloned by update_all_repos.sh)
 ├── chutes-e2ee-transport/       # E2EE transport (cloned by update_all_repos.sh)
+├── e2ee-proxy/                  # Local E2EE proxy (cloned by update_all_repos.sh)
 ├── sek8s/                       # Kubernetes integration (cloned by update_all_repos.sh)
 ├── DOCKER_TROUBLESHOOTING.md    # Notes on Python/inspecto issues
 └── README.md
