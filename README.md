@@ -36,6 +36,9 @@ This repository is a workspace for several core Chutes repos, managed locally vi
 | `chutes-e2ee-transport/` | End-to-end encrypted communication | [github.com/chutesai/chutes-e2ee-transport](https://github.com/chutesai/chutes-e2ee-transport) |
 | `e2ee-proxy/` | Local OpenAI-compatible E2EE proxy | [github.com/chutesai/e2ee-proxy](https://github.com/chutesai/e2ee-proxy) |
 | `sek8s/` | Kubernetes integration and infrastructure | [github.com/chutesai/sek8s](https://github.com/chutesai/sek8s) |
+| `chutes-audit/` | Auditor for verifying fair request distribution and setting weights | [github.com/chutesai/chutes-audit](https://github.com/chutesai/chutes-audit) |
+| `sglang/` | Chutes fork of the SGLang inference engine (default branch: `chutes`) | [github.com/chutesai/sglang](https://github.com/chutesai/sglang) |
+| `vllm/` | Chutes fork of the vLLM inference engine | [github.com/chutesai/vllm](https://github.com/chutesai/vllm) |
 
 ### Keeping Repos in Sync
 

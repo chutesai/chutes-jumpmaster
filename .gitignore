@@ -46,8 +46,11 @@ config.ini
 /chutes-e2ee-transport
 /e2ee-proxy
 /sek8s
-/chutes-web
 /claude-proxy
 /chutes-n8n-local
 /n8n-nodes-chutes
 /chutes-dropzone
+.claude/settings.json
+/sglang
+/vllm
+/chutes-audit

@@ -4,12 +4,17 @@
 # Clones repos that are missing, pulls repos that exist.
 # Repo list is persisted in .sub-repos (untracked) after first run.
 # New default repos are backfilled into existing .sub-repos files.
+#
+# Public default repos are ignored via the tracked .gitignore. Any other
+# repos in .sub-repos (e.g. private ones) are ignored locally via
+# .git/info/exclude, so their names never land in a tracked file.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUBREPOS_FILE="$SCRIPT_DIR/.sub-repos"
 GITIGNORE_FILE="$SCRIPT_DIR/.gitignore"
+GIT_EXCLUDE_FILE="$SCRIPT_DIR/.git/info/exclude"
 
 # Default org used to build clone URLs for repos that don't specify one
 DEFAULT_ORG="chutesai"
@@ -22,44 +27,51 @@ DEFAULT_REPOS=(
     "e2ee-proxy"
     "sek8s"
     "claude-proxy"
+    "chutes-audit"
+    "sglang"
+    "vllm"
 )
 
-is_repo_ignored() {
-    local repo="$1"
-    [ -f "$GITIGNORE_FILE" ] || return 1
-    grep -qxF "$repo" "$GITIGNORE_FILE" || grep -qxF "/$repo" "$GITIGNORE_FILE"
+is_repo_in_file() {
+    local repo="$1" file="$2"
+    [ -f "$file" ] || return 1
+    grep -qxF "$repo" "$file" || grep -qxF "/$repo" "$file"
 }
 
-ensure_repos_ignored() {
+# Ensure every repo has a "/repo" ignore entry in $file, under $header.
+# $label is the human-readable file name used in log messages.
+ensure_repos_in_ignore_file() {
+    local file="$1" header="$2" label="$3"
+    shift 3
     local repos=("$@")
     local missing=()
     local repo
 
     for repo in "${repos[@]}"; do
         [ -n "$repo" ] || continue
-        if ! is_repo_ignored "$repo"; then
+        if ! is_repo_in_file "$repo" "$file"; then
             missing+=("$repo")
         fi
     done
 
     if [ ${#missing[@]} -gt 0 ]; then
-        [ -f "$GITIGNORE_FILE" ] || touch "$GITIGNORE_FILE"
+        [ -f "$file" ] || touch "$file"
 
-        if ! grep -qxF "# Sub-repo directories (managed by update_all_repos.sh)" "$GITIGNORE_FILE"; then
-            [ -s "$GITIGNORE_FILE" ] && echo "" >> "$GITIGNORE_FILE"
-            echo "# Sub-repo directories (managed by update_all_repos.sh)" >> "$GITIGNORE_FILE"
+        if ! grep -qxF "$header" "$file"; then
+            [ -s "$file" ] && echo "" >> "$file"
+            echo "$header" >> "$file"
         fi
 
         for repo in "${missing[@]}"; do
-            echo "/$repo" >> "$GITIGNORE_FILE"
-            echo "Added /$repo to .gitignore"
+            echo "/$repo" >> "$file"
+            echo "Added /$repo to $label"
         done
     fi
 
     for repo in "${repos[@]}"; do
         [ -n "$repo" ] || continue
-        if ! is_repo_ignored "$repo"; then
-            echo "[FAILED] Missing .gitignore entry for $repo"
+        if ! is_repo_in_file "$repo" "$file"; then
+            echo "[FAILED] Missing $label entry for $repo"
             exit 1
         fi
     done
@@ -143,7 +155,29 @@ while IFS= read -r line; do
     REPOS+=("$line")
 done < <(grep -v '^\s*#' "$SUBREPOS_FILE" | grep -v '^\s*$')
 
-ensure_repos_ignored "${REPOS[@]}"
+# Public default repos go in the tracked .gitignore.
+ensure_repos_in_ignore_file "$GITIGNORE_FILE" \
+    "# Sub-repo directories (managed by update_all_repos.sh)" \
+    ".gitignore" \
+    "${DEFAULT_REPOS[@]}"
+
+# Any repo in .sub-repos not already covered by .gitignore (e.g. a private
+# repo) is ignored locally via .git/info/exclude, keeping its name out of
+# tracked files.
+LOCAL_REPOS=()
+for repo in "${REPOS[@]}"; do
+    if is_repo_in_file "$repo" "$GITIGNORE_FILE"; then
+        continue
+    fi
+    LOCAL_REPOS+=("$repo")
+done
+
+if [ ${#LOCAL_REPOS[@]} -gt 0 ]; then
+    ensure_repos_in_ignore_file "$GIT_EXCLUDE_FILE" \
+        "# Local sub-repo directories (managed by update_all_repos.sh)" \
+        ".git/info/exclude" \
+        "${LOCAL_REPOS[@]}"
+fi
 
 SUCCESS_COUNT=0
 FAILURE_COUNT=0
