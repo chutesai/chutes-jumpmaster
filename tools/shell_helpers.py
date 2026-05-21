@@ -314,6 +314,10 @@ def create_chute_from_image_entry(args: argparse.Namespace) -> int:
     return invoke_tool_main("create_chute_from_image", args.tool_args)
 
 
+def recover_image_build_entry(args: argparse.Namespace) -> int:
+    return invoke_tool_main("recover_image_build", args.tool_args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -362,6 +366,10 @@ def build_parser() -> argparse.ArgumentParser:
     cmd = subparsers.add_parser("create-chute-from-image")
     cmd.add_argument("tool_args", nargs=argparse.REMAINDER)
     cmd.set_defaults(func=create_chute_from_image_entry)
+
+    cmd = subparsers.add_parser("recover-image-build")
+    cmd.add_argument("tool_args", nargs=argparse.REMAINDER)
+    cmd.set_defaults(func=recover_image_build_entry)
 
     return parser
 

@@ -147,7 +147,7 @@ Interactive wizard that:
 
 ### 2. Build & Deploy (`./utils.sh`)
 
-Interactive hub with 13 menu options, or use flags directly:
+Interactive hub with 14 menu options, or use flags directly:
 
 | Category | Option | Capability |
 |----------|--------|------------|
@@ -164,6 +164,7 @@ Interactive hub with 13 menu options, or use flags directly:
 | Cloud Ops | **11** | Keep warm loop (repeated warmup) |
 | Cleanup | **12** | List & delete chutes (interactive safety checks) |
 | Cleanup | **13** | List & delete images |
+| Images | **14** | Recover a public image's original Dockerfile and Chutes build template |
 
 **CLI flag examples**
 ```bash
@@ -171,6 +172,8 @@ Interactive hub with 13 menu options, or use flags directly:
 ./utils.sh --build deploy_xtts_whisper --local
 ./utils.sh --deploy deploy_xtts_whisper --accept-fee
 ./utils.sh --logs xtts-whisper
+./utils.sh --recover-image sglang
+./utils.sh --recover-image chutes/sglang:nightly-2026051700
 ```
 
 ### 3. Route Discovery
@@ -258,6 +261,7 @@ chutes-jumpmaster/
 ├── tools/
 │   ├── chute_wrappers.py        # Image builder, route helpers
 │   ├── discover_routes.py       # OpenAPI probing and route discovery
+│   ├── recover_image_build.py   # Recover public image Dockerfiles from build logs
 │   ├── create_chute_from_image.py  # Generate chute from Docker image
 │   └── instance_logs.py         # Watcher-first log utility (legacy fallback included)
 ├── chutes/                      # Chutes Python SDK (cloned by update_all_repos.sh)

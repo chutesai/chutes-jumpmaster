@@ -340,6 +340,13 @@ class ShellHelpersTests(unittest.TestCase):
         self.assertEqual(status, 0)
         mock_invoke.assert_called_once_with("create_chute_from_image", ["image:tag"])
 
+    @mock.patch("shell_helpers.invoke_tool_main")
+    def test_recover_image_build_entry(self, mock_invoke):
+        mock_invoke.return_value = 0
+        status = shell_helpers.recover_image_build_entry(Namespace(tool_args=["sglang"]))
+        self.assertEqual(status, 0)
+        mock_invoke.assert_called_once_with("recover_image_build", ["sglang"])
+
     def test_build_parser(self):
         parser = shell_helpers.build_parser()
         args = parser.parse_args(["derive-user-id", "example"])
