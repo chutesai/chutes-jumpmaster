@@ -35,6 +35,8 @@ config.ini
 # Local development
 .env
 .env.local
+.playwright-mcp/
+dockerfiles/
 
 # Sub-repo list (user-local, managed by update_all_repos.sh)
 .sub-repos

@@ -32,6 +32,7 @@ RUN_MODULE=""
 RUN_DOCKER_MODULE=""
 DELETE_CHUTE=""
 LOGS_CHUTE=""
+RECOVER_IMAGE_BUILD=""
 DISCOVER_MODULE=""
 LOCAL_BUILD=false
 ACCEPT_FEE=false
@@ -173,6 +174,7 @@ ${YELLOW}Options:${NC}
   ${BLUE}Management:${NC}
   --delete NAME           Delete a chute (interactive confirmation)
   --logs NAME             Warmup + stream logs (auto-watch, legacy fallback)
+  --recover-image IMAGE   Recover Dockerfile + Chutes build for public image
   --debug                 Enable debug output
 
 ${YELLOW}Available Modules:${NC}
@@ -186,6 +188,8 @@ ${YELLOW}Examples:${NC}
   ./utils.sh --run deploy_xtts_whisper           # Run on host (dev mode)
   ./utils.sh --deploy deploy_xtts_whisper --accept-fee
   ./utils.sh --status xtts-whisper
+  ./utils.sh --recover-image sglang
+  ./utils.sh --recover-image chutes/sglang:nightly-2026051700
 
 EOF
 }
@@ -1808,6 +1812,22 @@ do_create_from_image() {
     run_tools_py "${cmd[@]}"
 }
 
+do_recover_image_build() {
+    local image_ref="$1"
+    if [[ -z "$image_ref" ]]; then
+        print_error "Image reference is required (e.g. sglang, vllm, or chutes/sglang:nightly-2026051700)"
+        return 1
+    fi
+
+    print_header "Recover Image Build: $image_ref"
+    ensure_venv
+    ensure_chutes_config || return 1
+
+    print_cmd "run_tools_py recover-image-build \"$image_ref\""
+    echo ""
+    run_tools_py recover-image-build "$image_ref"
+}
+
 # =============================================================================
 # Interactive Menu
 # =============================================================================
@@ -1840,6 +1860,7 @@ show_menu() {
     echo -e "  ${CYAN}── MANAGEMENT ────────────────────────────────────────────────────${NC}"
     echo -e "  ${GREEN}12)${NC} List & Delete Chutes"
     echo -e "  ${GREEN}13)${NC} List & Delete Images"
+    echo -e "  ${GREEN}14)${NC} Recover Public Image Dockerfile"
     echo ""
     echo -e "  ${GREEN} q)${NC} Quit"
     echo ""
@@ -1903,6 +1924,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --logs)
             LOGS_CHUTE="$2"
+            shift 2
+            ;;
+        --recover-image)
+            RECOVER_IMAGE_BUILD="$2"
             shift 2
             ;;
         --local)
@@ -2009,6 +2034,12 @@ main() {
         do_check_logs "$LOGS_CHUTE"
         exit 0
     fi
+
+    if [[ -n "$RECOVER_IMAGE_BUILD" ]]; then
+        ensure_chutes_config
+        do_recover_image_build "$RECOVER_IMAGE_BUILD"
+        exit 0
+    fi
     
     # Interactive mode
     while true; do
@@ -2110,6 +2141,12 @@ main() {
                 if [[ -n "$image_name" ]]; then
                     do_delete_image "$image_name"
                 fi
+                ;;
+            14)
+                ensure_chutes_config || continue
+                read -rp "Image name/ref [sglang]: " image_ref
+                image_ref=${image_ref:-sglang}
+                do_recover_image_build "$image_ref"
                 ;;
             q|Q)
                 echo "Goodbye!"
