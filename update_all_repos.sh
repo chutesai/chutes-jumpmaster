@@ -30,6 +30,7 @@ DEFAULT_REPOS=(
     "chutes-audit"
     "sglang"
     "vllm"
+    "chutes-docs"
 )
 
 is_repo_in_file() {

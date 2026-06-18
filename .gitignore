@@ -36,6 +36,7 @@ config.ini
 .env
 .env.local
 .playwright-mcp/
+.claude/
 dockerfiles/
 
 # Sub-repo list (user-local, managed by update_all_repos.sh)
@@ -52,7 +53,7 @@ dockerfiles/
 /chutes-n8n-local
 /n8n-nodes-chutes
 /chutes-dropzone
-.claude/settings.json
 /sglang
 /vllm
 /chutes-audit
+/chutes-docs
