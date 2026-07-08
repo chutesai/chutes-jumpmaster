@@ -48,7 +48,7 @@ Run `update_all_repos.sh` to fetch and pull latest changes from all sub-reposito
 ./update_all_repos.sh
 ```
 
-On first run, the script will display the default repo list and prompt you to add any extra repos. Your choices are saved to `.sub-repos` (untracked) and used on all subsequent runs.
+On first run, the script will display the default repo list and prompt you to add any extra repos. Your choices are saved to `.sub-repos` (untracked) and used on all subsequent runs. Extra entries can be either `repo-name` for `chutesai` repos or `owner/repo-name` for repos in another GitHub owner.
 
 ---
 

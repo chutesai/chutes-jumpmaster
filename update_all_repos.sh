@@ -16,27 +16,77 @@ SUBREPOS_FILE="$SCRIPT_DIR/.sub-repos"
 GITIGNORE_FILE="$SCRIPT_DIR/.gitignore"
 GIT_EXCLUDE_FILE="$SCRIPT_DIR/.git/info/exclude"
 
-# Default org used to build clone URLs for repos that don't specify one
+# Default org used to build clone URLs for repos that don't specify one.
+# .sub-repos entries may be either:
+#   repo-name
+#   owner/repo-name
+#   https://github.com/owner/repo-name.git
 DEFAULT_ORG="chutesai"
 
+# Public, non-fork repos in the chutesai org
 DEFAULT_REPOS=(
+    "ai-sdk-provider-chutes"
+    "antseed-verification"
+    "bittencert"
     "chutes"
     "chutes-api"
-    "chutes-miner"
-    "chutes-e2ee-transport"
-    "e2ee-proxy"
-    "sek8s"
-    "claude-proxy"
     "chutes-audit"
-    "sglang"
-    "vllm"
+    "chutes-autopilot"
     "chutes-docs"
+    "chutes-dropzone"
+    "chutes-e2ee-transport"
+    "chutes-miner"
+    "chutes-n8n-local"
+    "chutes-search"
+    "chutes-style"
+    "claude-proxy"
+    "cllmv"
+    "e2ee-proxy"
+    "e2ee-test"
+    "fiber"
+    "graval"
+    "model-router"
+    "n8n-nodes-chutes"
+    "research-data-opt-in-proxy"
+    "responses-proxy"
+    "sek8s"
+    "Sign-in-with-Chutes"
+    "squad-api"
 )
 
 is_repo_in_file() {
     local repo="$1" file="$2"
     [ -f "$file" ] || return 1
     grep -qxF "$repo" "$file" || grep -qxF "/$repo" "$file"
+}
+
+parse_repo_spec() {
+    local spec="$1"
+
+    PARSED_REPO_OWNER="$DEFAULT_ORG"
+    PARSED_REPO_NAME="$spec"
+    PARSED_REPO_DISPLAY="$spec"
+
+    spec="${spec%/}"
+    spec="${spec%.git}"
+    spec="${spec%/}"
+    spec="${spec#https://github.com/}"
+    spec="${spec#http://github.com/}"
+    spec="${spec#git@github.com:}"
+
+    if [[ "$spec" == */* ]]; then
+        PARSED_REPO_OWNER="${spec%%/*}"
+        PARSED_REPO_NAME="${spec#*/}"
+    else
+        PARSED_REPO_NAME="$spec"
+    fi
+
+    PARSED_REPO_CLONE_URL="https://github.com/$PARSED_REPO_OWNER/$PARSED_REPO_NAME.git"
+    if [ "$PARSED_REPO_OWNER" = "$DEFAULT_ORG" ]; then
+        PARSED_REPO_DISPLAY="$PARSED_REPO_NAME"
+    else
+        PARSED_REPO_DISPLAY="$PARSED_REPO_OWNER/$PARSED_REPO_NAME"
+    fi
 }
 
 # Ensure every repo has a "/repo" ignore entry in $file, under $header.
@@ -129,7 +179,7 @@ if [ ! -f "$SUBREPOS_FILE" ]; then
     # Write .sub-repos
     {
         echo "# Sub-repos tracked by update_all_repos.sh"
-        echo "# One repo name per line. Cloned from https://github.com/$DEFAULT_ORG/<name>.git"
+        echo "# One repo per line. Use either <name> for $DEFAULT_ORG repos or <owner>/<name>."
         echo "# Lines starting with # are ignored."
         echo ""
         for r in "${DEFAULT_REPOS[@]}"; do
@@ -163,10 +213,12 @@ ensure_repos_in_ignore_file "$GITIGNORE_FILE" \
     "${DEFAULT_REPOS[@]}"
 
 # Any repo in .sub-repos not already covered by .gitignore (e.g. a private
-# repo) is ignored locally via .git/info/exclude, keeping its name out of
-# tracked files.
+# repo or a repo from another owner) is ignored locally via .git/info/exclude,
+# keeping its name out of tracked files.
 LOCAL_REPOS=()
-for repo in "${REPOS[@]}"; do
+for repo_spec in "${REPOS[@]}"; do
+    parse_repo_spec "$repo_spec"
+    repo="$PARSED_REPO_NAME"
     if is_repo_in_file "$repo" "$GITIGNORE_FILE"; then
         continue
     fi
@@ -184,8 +236,11 @@ SUCCESS_COUNT=0
 FAILURE_COUNT=0
 SKIPPED_COUNT=0
 
-for REPO in "${REPOS[@]}"; do
-    CLONE_URL="https://github.com/$DEFAULT_ORG/$REPO.git"
+for REPO_SPEC in "${REPOS[@]}"; do
+    parse_repo_spec "$REPO_SPEC"
+    REPO="$PARSED_REPO_NAME"
+    REPO_DISPLAY="$PARSED_REPO_DISPLAY"
+    CLONE_URL="$PARSED_REPO_CLONE_URL"
     REPO_PATH="$SCRIPT_DIR/$REPO"
 
     # Detect whether the directory is a valid git repo
@@ -196,23 +251,23 @@ for REPO in "${REPOS[@]}"; do
 
     if [ "$REPO_VALID" = false ]; then
         if [ -d "$REPO_PATH" ]; then
-            echo "[RECLONE] $REPO - directory exists but is not a valid git repository, removing and re-cloning"
+            echo "[RECLONE] $REPO_DISPLAY - directory exists but is not a valid git repository, removing and re-cloning"
             rm -rf "$REPO_PATH"
         else
-            echo "[CLONE] $REPO <- $CLONE_URL"
+            echo "[CLONE] $REPO_DISPLAY <- $CLONE_URL"
         fi
         if /usr/bin/git clone "$CLONE_URL" "$REPO_PATH" 2>&1; then
-            echo "[CLONED] $REPO"
+            echo "[CLONED] $REPO_DISPLAY"
             ((SUCCESS_COUNT++))
         else
-            echo "[FAILED] $REPO - git clone failed"
+            echo "[FAILED] $REPO_DISPLAY - git clone failed"
             ((FAILURE_COUNT++))
         fi
         echo ""
         continue
     fi
 
-    echo "[START] $REPO"
+    echo "[START] $REPO_DISPLAY"
 
     CURRENT_BRANCH=$(/usr/bin/git -C "$REPO_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
     DEFAULT_BRANCH=$(/usr/bin/git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "")
@@ -220,11 +275,11 @@ for REPO in "${REPOS[@]}"; do
 
     # Warn if not on the default branch (interactive runs only)
     if [ -t 1 ] && [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]; then
-        echo "[WARN]  $REPO is on '$CURRENT_BRANCH', not '$DEFAULT_BRANCH' — pull may not reflect latest upstream"
+        echo "[WARN]  $REPO_DISPLAY is on '$CURRENT_BRANCH', not '$DEFAULT_BRANCH' — pull may not reflect latest upstream"
     fi
 
     if [ -z "$UPSTREAM_BRANCH" ]; then
-        echo "[SKIPPED] $REPO - branch '$CURRENT_BRANCH' has no upstream tracking branch"
+        echo "[SKIPPED] $REPO_DISPLAY - branch '$CURRENT_BRANCH' has no upstream tracking branch"
         ((SKIPPED_COUNT++))
         echo ""
         continue
@@ -233,15 +288,15 @@ for REPO in "${REPOS[@]}"; do
     if PULL_OUTPUT=$(/usr/bin/git -C "$REPO_PATH" pull 2>&1); then
         echo "$PULL_OUTPUT"
         if echo "$PULL_OUTPUT" | grep -q "Already up to date"; then
-            echo "[OK] $REPO (branch: $CURRENT_BRANCH)"
+            echo "[OK] $REPO_DISPLAY (branch: $CURRENT_BRANCH)"
         else
-            echo "[UPDATED] $REPO (branch: $CURRENT_BRANCH)"
+            echo "[UPDATED] $REPO_DISPLAY (branch: $CURRENT_BRANCH)"
         fi
         ((SUCCESS_COUNT++))
     else
         PULL_STATUS=$?
         echo "$PULL_OUTPUT"
-        echo "[FAILED] $REPO - git pull failed (exit: $PULL_STATUS)"
+        echo "[FAILED] $REPO_DISPLAY - git pull failed (exit: $PULL_STATUS)"
         ((FAILURE_COUNT++))
     fi
 
